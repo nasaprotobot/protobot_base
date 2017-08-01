@@ -5,15 +5,27 @@ from ast import literal_eval as secureVal #Tuple parsing in parseTelemetry()
 from time import sleep
 import socket
 import os
+import sys
 import threading
+import smbus
 
 BCAST_IP = "255.255.255.255"
 ROBOT_ANNOUNCE_PORT = 55055
 INSTRUCTIONS_PORT = 55056
 
+bus = smbus.SMBus(1)
+
+ARDUINO = 4
+
+
+
+### =====================================================================
+### ============================= FUNCTIONS =============================
+### =====================================================================
 
 #Heartbeat function - used with thread
 def broadcastLoop(sock, t, msg, dest, port):
+    print("[OK] Heartbeat started!")
     while True:
         sock.sendto(msg, (dest, port))
         sleep(t)
@@ -24,8 +36,9 @@ def timeoutWatchdog(timeoutTrigger):
         timeoutTrigger[0] = True
         sleep(1)
 
-    print("Timeout detected... dying")
-    os._exit(os.EX_UNAVAILABLE)
+    print("[ERROR] Timeout detected... restarting...")
+    
+    os.execv(sys.executable, ["python"] + sys.argv) #Restart the process
     
 #Parse the incoming telemetry
 #into a usable data dictionary
@@ -46,6 +59,13 @@ def parseTelemetry(rawData):
 
     return dataDict
 
+def drive(dataDict):
+    pwm3 = int( -float(dataDict["axes"][0]) * 66 + 187)
+    pwm9 = int( -float(dataDict["axes"][1]) * 66 + 187)
+    pwm11 = int(-float(dataDict["axes"][2]) * 66 + 187)
+
+    bus.write_i2c_block_data(ARDUINO, 0, [3, pwm3, 9, pwm9, 11, pwm11])
+
 ### ========================================================================
 ### ============================= MAIN PROGRAM =============================
 ### ========================================================================
@@ -63,20 +83,23 @@ while (waitToStart):
         robotIP = os.popen('ip addr show wlan0').read().split("inet ")[1].split("/")[0]
 
     except IndexError:
-        print("No connection detected... trying again...")
+        print("[WAIT] No connection detected... trying again...")
         waitToStart = True
         sleep(4)
         
-print("Connection established!")
+print("[OK] Connection established!")
 
 
 #ANNOUNCE ROBOT PRESCENCE TO CONTROLLER
 #Socket setup
+print("Preparing heartbeat socket...")
 robotAnnounceSock = socket.socket(socket.AF_INET, # Internet
                      socket.SOCK_DGRAM) # UDP
 robotAnnounceSock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+print("[OK] Heartbeat socket online!")
 
 #Begin broadcasting on loop via another thread
+print("Attempting to launch heartbeat thread...") #print confirm inside thread
 announceThread = threading.Thread(target=broadcastLoop, args=
                                   (robotAnnounceSock, 1, robotName.encode('utf-8'), BCAST_IP, ROBOT_ANNOUNCE_PORT,),
                                   daemon=True) #Kill this task when the main thread exits
@@ -84,9 +107,14 @@ announceThread.start()
 
 ###BEGIN LISTENING FOR INSTRUCTIONS
 #Setup receiving port
+print("Preparing instruction socket...")
 instructionSock = socket.socket(socket.AF_INET, # Internet
                      socket.SOCK_DGRAM) # UDP
 instructionSock.bind(("", INSTRUCTIONS_PORT))
+print("[OK] Instruction socket online")
+
+print("Attempting to initialize pwm")
+bus.write_i2c_block_data(ARDUINO, 0, [3,187,9,187,11,187])
 
 print("All systems operational!")
 print("NA.Sa, READY FOR COMBAT")
@@ -115,3 +143,4 @@ while True:
     dataDict = parseTelemetry(data)
 
     #TODO call drive method
+    drive(dataDict)
