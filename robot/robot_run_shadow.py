@@ -10,7 +10,6 @@ import threading
 import smbus
 import dothat.lcd as lcd
 import dothat.backlight as backlight
-import queue
 
 BCAST_IP = "255.255.255.255"
 ROBOT_ANNOUNCE_PORT = 55055
@@ -20,7 +19,7 @@ bus = smbus.SMBus(1)
 
 ARDUINO = 4
 
-dicts = queue.Queue(100)
+
 
 ### =====================================================================
 ### ============================= FUNCTIONS =============================
@@ -74,15 +73,13 @@ def backlightSweep():
 #Parse the incoming telemetry
 #into a usable data dictionary
 def parseTelemetry(rawData):
-    dataDict = { "axes": [], "buttons": [], "hats": [], "options": []}
+    dataDict = { "axes": [], "buttons": [], "hats": [] }
     i = 0
     while (rawData[i] != "endtrans"):
         if (rawData[i][0] == "a"):
             dataDict["axes"].append(rawData[i+1])
         elif (rawData[i][0] == "b"):
             dataDict["buttons"].append(rawData[i+1])
-        elif (rawData[i][0] == "o"):
-            dataDict["options"].append(rawData[i+1])
         elif (rawData[i][0] == "h"):
             #Eval will treat the string as python code
             dataDict["hats"].append(secureVal(rawData[i+1] + ", " + rawData[i+2]))
@@ -92,16 +89,43 @@ def parseTelemetry(rawData):
 
     return dataDict
 
-#dataDict["logitech"]["axes"][0]
-# controller,logitech,a0,123,a1,342,controller,saitek,a0,145,endtrans
-
-#Mecanum drive
+#Two wheel drive
 def drive(dataDict):
-    pwm3 = int( -float(dataDict["axes"][0]) * 66 + 187)
-    pwm9 = int( -float(dataDict["axes"][1]) * 66 + 187)
-    pwm11 = int(-float(dataDict["axes"][2]) * 66 + 187)
+    joyX = -float(dataDict["axes"][1])
+    joyY = -float(dataDict["axes"][2])
+##    Rwheel_base = joyY - (joyX * joyY)
+##    Lwheel_base = -(joyY + (joyX * joyY))
+##    print("Right: " + str(Rwheel_base) + "    Left" + str(Lwheel_base))
 
-    bus.write_i2c_block_data(ARDUINO, 0, [3, pwm3, 9, pwm9, 11, pwm11])
+##    Rwheel_base1 = joyY
+##    Lwheel_base1 = joyY
+##
+##    Rwheel_base2 = -joyX
+##    Lwheel_base2 = joyX
+
+    Rwheel_base = (joyY - joyX)/2
+    Lwheel_base = (joyY + joyX)/2
+    
+    if Rwheel_base > 1:
+        Rwheel_base = 1
+    elif Rwheel_base < -1:
+        Rwheel_base = -1
+
+    if Lwheel_base > 1:
+        Lwheel_base = 1
+    elif Lwheel_base < -1:
+        Lwheel_base = -1
+        
+##    if joyX > 0 && joyY > 0:
+##        Rwheel_base -= joyX
+##    elif joyX > 0 && joyY < 0:
+##        Rwheel_base += joyX
+##    elif joyX < 0 && joyY > 0:
+##        Lwheel_base -= joyX
+    pwm3 = int( -Lwheel_base * 66 + 187)
+    pwm9 = int( -Rwheel_base * 66 + 187)
+
+    bus.write_i2c_block_data(ARDUINO, 0, [3, pwm3, 9, pwm9])
 
 ### ========================================================================
 ### ============================= MAIN PROGRAM =============================
@@ -135,11 +159,10 @@ robotAnnounceSock = socket.socket(socket.AF_INET, # Internet
 robotAnnounceSock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 print("[OK] Heartbeat socket online!")
 
-broadMessage = (robotName + "," + "5 sec delay").encode('utf-8')
 #Begin broadcasting on loop via another thread
 print("Attempting to launch heartbeat thread...") #print confirm inside thread
 announceThread = threading.Thread(target=broadcastLoop, args=
-                                  (robotAnnounceSock, 1, broadMessage, BCAST_IP, ROBOT_ANNOUNCE_PORT,),
+                                  (robotAnnounceSock, 1, robotName.encode('utf-8'), BCAST_IP, ROBOT_ANNOUNCE_PORT,),
                                   daemon=True) #Kill this task when the main thread exits
 announceThread.start()
 
@@ -187,24 +210,14 @@ while True:
     data = data.split(",")
     dataDict = parseTelemetry(data)
 
-    #if dataDict['options'][0] == '1':
-        #Add data to Queue
-##    dicts.put(dataDict)
-
-       #Remove from queue and drive
-##    if dicts.full():
-##        dataDict = dicts.get()
-##        drive(dataDict)
-##    else:
+    #TODO call drive method
     drive(dataDict)
-        
-    #sleep(.01)
+    sleep(.01)
     volts = bus.read_byte(ARDUINO)
     #print("val " + str(volts))
     volts = volts / 51 * 11
     lcd.clear()
-    lcd.write("READY FOR COMBAT")
-    lcd.write("Battery: ")
+    lcd.write("READY FOR COMBATBattery: ")
     lcd.write(str(round(volts,1)))
     lcd.write("V")
     backlight.set_graph((volts - 6)/6)

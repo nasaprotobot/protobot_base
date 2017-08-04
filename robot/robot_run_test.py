@@ -20,7 +20,10 @@ bus = smbus.SMBus(1)
 
 ARDUINO = 4
 
+pause = False
+
 dicts = queue.Queue(100)
+
 
 ### =====================================================================
 ### ============================= FUNCTIONS =============================
@@ -73,9 +76,14 @@ def backlightSweep():
 
 #Parse the incoming telemetry
 #into a usable data dictionary
+
+#dataDict["logitech"]["axes"][0]
+# c1,logitech,a0,123,a1,342,controller,saitek,a0,145,endtrans
+
 def parseTelemetry(rawData):
     dataDict = { "axes": [], "buttons": [], "hats": [], "options": []}
     i = 0
+    
     while (rawData[i] != "endtrans"):
         if (rawData[i][0] == "a"):
             dataDict["axes"].append(rawData[i+1])
@@ -91,15 +99,61 @@ def parseTelemetry(rawData):
         i += 2
 
     return dataDict
+def parseTelemetryController(rawData):
+    dataDict = {}
+    dataDict["options"] = []
 
-#dataDict["logitech"]["axes"][0]
-# controller,logitech,a0,123,a1,342,controller,saitek,a0,145,endtrans
+    i = 0
+    while (rawData[i] != "endtrans"):
+        if (rawData[i][0] == "c"):
+            controller = rawData[i+1]
+            dataDict[controller] = { "axes": [], "buttons": [], "hats": [], "options": []}
 
+        if (rawData[i][0] == "a"):
+            dataDict[controller]["axes"].append(rawData[i+1])
+        elif (rawData[i][0] == "b"):
+            dataDict[controller]["buttons"].append(rawData[i+1])
+        elif (rawData[i][0] == "o"):
+            dataDict["options"].append(rawData[i+1])
+        elif (rawData[i][0] == "h"):
+            #Eval will treat the string as python code
+            dataDict[controller]["hats"].append(secureVal(rawData[i+1] + ", " + rawData[i+2]))
+            i += 1
+
+        i += 2        
+
+    return dataDict
+
+def doOptions(dataDict):
+    global pause
+
+    if dataDict["options"][0] == '1':
+        #Add data to Queue
+        dicts.put(dataDict)
+
+        #Remove from queue and drive
+##        print(dicts.qsize())
+        if dicts.full():
+            dataDict = dicts.get()
+            pause = False
+        else:
+            pause = True
+            
+    if dataDict["options"][1] == '1':
+        #Cut power in half
+        for i in range(len(dataDict["logitech"]["axes"])):
+            dataDict["logitech"]["axes"][i] = str(float(dataDict["logitech"]["axes"][i])/2)
+
+    return dataDict
 #Mecanum drive
 def drive(dataDict):
-    pwm3 = int( -float(dataDict["axes"][0]) * 66 + 187)
-    pwm9 = int( -float(dataDict["axes"][1]) * 66 + 187)
-    pwm11 = int(-float(dataDict["axes"][2]) * 66 + 187)
+    if pause:
+        bus.write_i2c_block_data(ARDUINO, 0, [3,187,9,187,11,187])
+        return
+    
+    pwm3 = int( -float(dataDict["logitech"]["axes"][0]) * 66 + 187)
+    pwm9 = int( -float(dataDict["logitech"]["axes"][1]) * 66 + 187)
+    pwm11 = int(-float(dataDict["logitech"]["axes"][2]) * 66 + 187)
 
     bus.write_i2c_block_data(ARDUINO, 0, [3, pwm3, 9, pwm9, 11, pwm11])
 
@@ -135,7 +189,7 @@ robotAnnounceSock = socket.socket(socket.AF_INET, # Internet
 robotAnnounceSock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 print("[OK] Heartbeat socket online!")
 
-broadMessage = (robotName + "," + "5 sec delay").encode('utf-8')
+broadMessage = (robotName + ",5 sec delay,low power").encode('utf-8')
 #Begin broadcasting on loop via another thread
 print("Attempting to launch heartbeat thread...") #print confirm inside thread
 announceThread = threading.Thread(target=broadcastLoop, args=
@@ -185,17 +239,8 @@ while True:
     #Organize data
     data = data.decode('utf-8')
     data = data.split(",")
-    dataDict = parseTelemetry(data)
-
-    #if dataDict['options'][0] == '1':
-        #Add data to Queue
-##    dicts.put(dataDict)
-
-       #Remove from queue and drive
-##    if dicts.full():
-##        dataDict = dicts.get()
-##        drive(dataDict)
-##    else:
+    dataDict = parseTelemetryController(data) #parseTelemetry(data)
+    dataDict = doOptions(dataDict)
     drive(dataDict)
         
     #sleep(.01)
