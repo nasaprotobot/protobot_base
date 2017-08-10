@@ -34,9 +34,8 @@ def toggleFullscreen(button):
 
 #Display controller information 
 def displayStats():
-    while True:
-        app.setLabel("cpulabel", "CPU: " + str(psutil.cpu_percent()) + "%")
-        time.sleep(1)
+    app.setLabel("cpulabel", "CPU: " + str(psutil.cpu_percent()) + "%")
+    app.setLabel("timelabel", "Time: " + time.strftime("%I:%M", time.localtime()))
     
 #Display robots and their configuration
 def refreshRobots(button):
@@ -304,11 +303,8 @@ def setupGUI():
     app.addLabel("versionlabel", "Version: " + VERSION, 1, 0)
     app.setLabelSticky("versionlabel", "ws")
 
-    app.addLabel("batterylabel", "Battery: " + "69%", 2, 0)
-    app.setLabelSticky("batterylabel", "ws")
-
-    app.addLabel("connectionlabel", "Connection: " + "ONLINE", 3, 0)
-    app.setLabelSticky("connectionlabel", "ws")
+    app.addLabel("timelabel", "Time: " + "00:00", 3, 0)
+    app.setLabelSticky("timelabel", "ws")
 
     app.addLabel("cpulabel", "CPU Usage: " + "20%", 4, 0)
     app.setLabelSticky("cpulabel", "ws")
@@ -322,11 +318,12 @@ def setupGUI():
     app.setButtonFg("fullscreentoggle", "white")
     app.setButtonSticky("fullscreentoggle", "wse")
 
-    app.addButton("robotreturn", print("fix me!"), 2, 2)
-    app.setButton("robotreturn", "Listen to Robot")
-    app.setButtonBg("robotreturn", "DarkOliveGreen4")
-    app.setButtonFg("robotreturn", "white")
-    app.setButtonSticky("robotreturn", "wse")
+    #This is ultimately not implemented yet. It should open a window with robot feedback.
+##    app.addButton("robotreturn", print("fix me!"), 2, 2)
+##    app.setButton("robotreturn", "Listen to Robot")
+##    app.setButtonBg("robotreturn", "DarkOliveGreen4")
+##    app.setButtonFg("robotreturn", "white")
+##    app.setButtonSticky("robotreturn", "wse")
 
     app.addLabel("robotprompt", "Select a robot:", 98, 0)
     app.setLabelBg("robotprompt", "grey")
@@ -411,5 +408,7 @@ app = gui("Protobot Control Center", "700x500")
 setupGUI()
 refreshRobots("setupcall")
 #statsThread.start()
+app.registerEvent(displayStats)
+app.setPollTime(2000)
 app.go()
 pygame.quit()
