@@ -1,10 +1,10 @@
-from appJar import gui
+from appJar import gui #installed
 import socket
 import time
 import collections
 import threading
-import pygame
-import tkinter
+import pygame #came installed
+import psutil #installed
 
 BCAST_IP = "255.255.255.255"
 ROBOT_HEARTBEAT_PORT = 55055
@@ -25,7 +25,18 @@ def recieveLoop():
 def pump():
     while True:
         pygame.event.pump()
-        time.sleep(0.05)
+        time.sleep(0.01)
+
+#Toggle fullscreen
+def toggleFullscreen(button):
+    if not app.exitFullscreen():
+        app.setGeometry("fullscreen")
+
+#Display controller information 
+def displayStats():
+    while True:
+        app.setLabel("cpulabel", "CPU: " + str(psutil.cpu_percent()) + "%")
+        time.sleep(1)
     
 #Display robots and their configuration
 def refreshRobots(button):
@@ -54,21 +65,25 @@ def refreshRobots(button):
     if (len(robotList.keys()) > 0):
         #Update list of robots, select one
         app.updateListBox("robotchoices", robotList.keys(), select=True)
+        app.setLabel("configlabel", "Configuration: Valid") #Safe to say it's valid because we're loading defaults
         refreshScreen("manual")
         
     #No robots found
     else:
         #Update list of robots, select one
         app.updateListBox("robotchoices", ["none"], select=True)
+        app.setLabel("configlabel", "Configuration: n/a")
         refreshScreen("manual")
-        
+
+#Called when a new robot is selected. Display's that robot's configuration       
 def refreshScreen(choiceGui):
     #Clear the visual elements
     clearProperties("Joystick(s)")
     clearProperties("Option(s)")
 
     active = app.getListItems("robotchoices")[0]
-    
+
+    #There is actually a robot available
     if (active != "none"):
         #Set visual elements to new values, callfunction set to False to not affect backend while we trigger visual state change
         app.setProperties("Joystick(s)", joystickSelection[active], callFunction = False)
@@ -76,6 +91,7 @@ def refreshScreen(choiceGui):
         app.setPropertiesState("Joystick(s)", "normal")
         app.setPropertiesState("Option(s)", "normal")
 
+    #There are no robots
     else:
         app.setProperties("Joystick(s)", { "none": True }, callFunction = False)
         app.setProperties("Option(s)", { "none": True }, callFunction = False)
@@ -163,7 +179,7 @@ def updateBackend(propName):
 #"Start the car"
 def turnKey(button):
     global keyIn
-    instT = threading.Thread(target=putInGear)
+    instT = threading.Thread(target=putInGear, daemon=True)
 
     if (keyIn == False):
         app.setButton("gobutton", "Starting...")
@@ -175,7 +191,7 @@ def turnKey(button):
             if not (joystickSelection[robot]["none"]):
 
                 hotSticks[addr] = []
-                hotOptions[addr] = []
+                hotOptions[addr] = ""
                 hotRobots.append(addr)
             
                 #For each robot check their joystick selections
@@ -185,15 +201,20 @@ def turnKey(button):
                     if (val == True):
 
                         #Append actual joystick object
-                        hotSticks[addr].append(joysticks[name])
+                        stick = joysticks[name]
+                        hotSticks[addr].append((stick, stick.get_name().split(" ")[0].lower(), stick.get_numaxes(),
+                                                stick.get_numbuttons(), stick.get_numhats()))
 
-                #Fpr each robot check their option selections
-                for name, val in optionSelection[robot].items():
+                #Ensure none is not checked for this robot
+                if not (optionSelection[robot]["none"]):
+                    #Add options to transmission
+                    for i in range(len(options[robot])):
+                        hotOptions[addr] += "o{},{},".format(i,int(optionSelection[robot][options[robot][i]]))
+                else:
+                    #Add options to transmission
+                    for i in range(len(options[robot])):
+                        hotOptions[addr] += "o{},0,".format(i)
 
-                    #If this option is selected
-                    if (val == True):
-                        hotOptions[addr].append(name)
-                        
         app.setListBoxState("robotchoices", "disabled")
         app.setPropertiesState("Joystick(s)", "disabled")
         app.setPropertiesState("Option(s)", "disabled")
@@ -214,7 +235,9 @@ def turnKey(button):
         app.setButtonBg("gobutton", "green")
         time.sleep(0.1)
 
+#"Drive the car"
 def putInGear():
+    j = 0
     while keyIn:
 
         #Cycle through all robots
@@ -223,16 +246,17 @@ def putInGear():
             joystickNum = 0
             
             #Start cycling through joysticks for this robot
-            for joystick in hotSticks[addr]:
-
+            for joystickMeta in hotSticks[addr]:
+                joystick = joystickMeta[0]
+                
                 #Add name of stick to transmission
-                telemetry += "c{},{},".format(joystickNum, joystick.get_name().split(" ")[0])
+                telemetry += "c{},{},".format(joystickNum, joystickMeta[1])
                 joystickNum += 1
 
                 #Get joystick info
-                numAxes = joystick.get_numaxes()
-                numButtons = joystick.get_numbuttons()
-                numHats = joystick.get_numhats()
+                numAxes = joystickMeta[2]
+                numButtons = joystickMeta[3]
+                numHats = joystickMeta[4]
 
                 #Collect controller state information
                 for i in range( numAxes ):
@@ -247,6 +271,8 @@ def putInGear():
                     hat = joystick.get_hat(i)
                     telemetry += "h{},{},".format(i, hat)
 
+            telemetry += hotOptions[addr]          
+            
             #All joysticks finished, cap transmission 
             telemetry += "endtrans"
 
@@ -290,7 +316,7 @@ def setupGUI():
     app.addLabel("configlabel", "Configuration: " + "Valid", 5, 0, 3)
     app.setLabelSticky("configlabel", "ws")
 
-    app.addButton("fullscreentoggle", print("fix me!"), 1, 2)
+    app.addButton("fullscreentoggle", toggleFullscreen, 1, 2)
     app.setButton("fullscreentoggle", "Toggle Fullscreen")
     app.setButtonBg("fullscreentoggle", "DarkOliveGreen4")
     app.setButtonFg("fullscreentoggle", "white")
@@ -340,6 +366,7 @@ joysticks = collections.OrderedDict()
 options = collections.OrderedDict()
 hotSticks = collections.OrderedDict()
 hotOptions = collections.OrderedDict()
+joyMeta = collections.OrderedDict()
 hotRobots = []
 
 #Some basic initial values. User should never see these
@@ -373,12 +400,16 @@ pygame.init()
 activateJoysticks()
 
 #Setup a pump thread
-pumpThread = threading.Thread(target=pump,
-                              daemon=True) #Kill thread with rest of program
+pumpThread = threading.Thread(target=pump, daemon=True) #Kill thread with rest of program
 pumpThread.start()
+
+#Setup a stats thread. Can't be started until GUI is started
+#statsThread = threading.Thread(target=displayStats, daemon=True)
 
 #Start the GUI interface
 app = gui("Protobot Control Center", "700x500")
 setupGUI()
 refreshRobots("setupcall")
+#statsThread.start()
 app.go()
+pygame.quit()
