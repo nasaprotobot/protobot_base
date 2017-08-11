@@ -281,8 +281,6 @@ def putInGear():
 
         #Send all robots back to back with no delay, then wait
         time.sleep(0.05)
-        
-    print("done")
 
 def setupGUI():
 
